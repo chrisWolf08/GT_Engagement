@@ -1,0 +1,42 @@
+CREATE OR REPLACE TABLE `grant-thornton-ga4-export.GT_reporting.engagement_nav_report` 
+AS
+WITH base_events AS (
+  SELECT
+    PARSE_DATE('%Y%m%d', event_date) AS date,
+    user_pseudo_id,
+    CONCAT(user_pseudo_id, CAST((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS STRING)) AS session_key,
+    COALESCE((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'market'), '(not set)') AS market,
+    event_name,
+    COALESCE((SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec'), 0) AS engagement_time_ms
+  FROM
+    `grant-thornton-ga4-export.analytics_262734393.events_*`
+  WHERE
+    _TABLE_SUFFIX BETWEEN '20251101' 
+    AND FORMAT_DATE('%Y%m%d', DATE_SUB(CURRENT_DATE(), INTERVAL 1 DAY))
+)
+
+SELECT
+  date,
+  market,
+
+  COUNT(DISTINCT session_key) AS All_Sessions,
+  COUNT(DISTINCT IF(event_name = 'nav_interaction', session_key, NULL)) AS session_navInteraction,
+  
+  COUNTIF(event_name = 'page_view') AS total_page_views,
+  SAFE_DIVIDE(COUNTIF(event_name = 'page_view'), COUNT(DISTINCT session_key)) AS pages_per_session,
+
+  SAFE_DIVIDE(
+    SUM(engagement_time_ms) / 1000, 
+    COUNTIF(event_name = 'page_view')
+  ) AS avg_time_on_page_seconds
+
+FROM
+  base_events
+WHERE
+  session_key IS NOT NULL
+GROUP BY
+  date,
+  market
+ORDER BY
+  date DESC,
+  All_Sessions DESC;
